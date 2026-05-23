@@ -1,0 +1,22 @@
+{
+  "name": "patient-centric-health-records",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local demo dApp for patient-owned health records with a Contextual Consent Grammar.",
+  "scripts": {
+    "compile": "XDG_CONFIG_HOME=.cache XDG_DATA_HOME=.cache XDG_CACHE_HOME=.cache hardhat compile",
+    "test": "XDG_CONFIG_HOME=.cache XDG_DATA_HOME=.cache XDG_CACHE_HOME=.cache hardhat test && npm run test --workspace frontend",
+    "test:contracts": "XDG_CONFIG_HOME=.cache XDG_DATA_HOME=.cache XDG_CACHE_HOME=.cache hardhat test",
+    "test:frontend": "npm run test --workspace frontend",
+    "dev:chain": "XDG_CONFIG_HOME=.cache XDG_DATA_HOME=.cache XDG_CACHE_HOME=.cache hardhat node",
+    "deploy:local": "XDG_CONFIG_HOME=.cache XDG_DATA_HOME=.cache XDG_CACHE_HOME=.cache hardhat run scripts/deploy.js --network localhost",
+    "dev:frontend": "npm run dev --workspace frontend -- --host 127.0.0.1"
+  },
+  "workspaces": [
+    "frontend"
+  ],
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.18"
+  }
+}
