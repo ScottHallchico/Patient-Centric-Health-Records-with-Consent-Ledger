@@ -20,8 +20,8 @@ export function compilePolicy(uiPolicy) {
     institution: uiPolicy.consumer.institution,
     purpose: uiPolicy.purpose,
     priorCare: uiPolicy.relationship === "prior_care",
-    windowStart: toUnixTimestamp(uiPolicy.window.start),
-    windowEnd: toUnixTimestamp(uiPolicy.window.end),
+    windowStart: BigInt(toUnixTimestamp(uiPolicy.window.start)),
+    windowEnd: BigInt(toUnixTimestamp(uiPolicy.window.end)),
     notifyOnAccess: uiPolicy.notification === "immediate",
     attributes: uiPolicy.attributes ?? []
   };
