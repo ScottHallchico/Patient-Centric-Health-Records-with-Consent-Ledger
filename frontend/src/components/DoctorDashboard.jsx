@@ -1,7 +1,42 @@
 import { useEffect, useState } from "react";
-import { Eye, RefreshCw, Send } from "lucide-react";
+import { Download, Eye, FileText, RefreshCw, Send } from "lucide-react";
 import { decryptData } from "../utils/encryption";
 import { fetchFromIPFS } from "../utils/ipfs";
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function downloadFile(file) {
+  const byteString = atob(file.data);
+  const bytes = new Uint8Array(byteString.length);
+  for (let i = 0; i < byteString.length; i++) {
+    bytes[i] = byteString.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: file.type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function parseDecryptedPayload(plaintext) {
+  try {
+    const parsed = JSON.parse(plaintext);
+    if (typeof parsed === "object" && parsed !== null && "text" in parsed) {
+      return { text: parsed.text || "", files: parsed.files || [] };
+    }
+  } catch {
+    // Not JSON — legacy plain-text record
+  }
+  return { text: plaintext, files: [] };
+}
 
 export default function DoctorDashboard({ account, contract, readContract }) {
   const [records, setRecords] = useState([]);
@@ -11,7 +46,7 @@ export default function DoctorDashboard({ account, contract, readContract }) {
   const [institution, setInstitution] = useState("GeneralHospital");
   const [purpose, setPurpose] = useState("treatment");
   const [priorCare, setPriorCare] = useState(true);
-  const [decryptedText, setDecryptedText] = useState("");
+  const [decryptedPayload, setDecryptedPayload] = useState(null);
   const [status, setStatus] = useState("");
 
   async function refresh() {
@@ -76,15 +111,19 @@ export default function DoctorDashboard({ account, contract, readContract }) {
 
   async function handleDecrypt(request) {
     setStatus(`Decrypting record ${request.recordId}...`);
-    setDecryptedText("");
+    setDecryptedPayload(null);
     try {
       const record = await readContract.records(request.recordId);
       const encryptedPayload = await fetchFromIPFS(record.ipfsHash);
       const plaintext = await decryptData(encryptedPayload, request.keyMaterial);
       const tx = await contract.logAccess(request.recordId);
       await tx.wait();
-      setDecryptedText(plaintext);
-      setStatus(`Record ${request.recordId} decrypted locally and access logged.`);
+
+      const parsed = parseDecryptedPayload(plaintext);
+      setDecryptedPayload(parsed);
+
+      const fileSuffix = parsed.files.length > 0 ? ` with ${parsed.files.length} attachment(s)` : "";
+      setStatus(`Record ${request.recordId} decrypted locally${fileSuffix} and access logged.`);
     } catch (error) {
       setStatus(error.shortMessage ?? error.message);
     }
@@ -181,12 +220,37 @@ export default function DoctorDashboard({ account, contract, readContract }) {
         </div>
       </section>
 
-      {decryptedText && (
+      {decryptedPayload && (
         <section className="panel full-width">
           <div className="panel-heading">
             <h2>Decrypted View</h2>
           </div>
-          <pre className="plaintext">{decryptedText}</pre>
+          {decryptedPayload.text && (
+            <pre className="plaintext">{decryptedPayload.text}</pre>
+          )}
+          {decryptedPayload.files.length > 0 && (
+            <div className="decrypted-files">
+              <h3>Attachments ({decryptedPayload.files.length})</h3>
+              <div className="file-list">
+                {decryptedPayload.files.map((file, i) => (
+                  <div className="file-item file-item-download" key={`${file.name}-${i}`}>
+                    <FileText size={16} />
+                    <span className="file-name">{file.name}</span>
+                    <span className="file-size">{formatFileSize(file.size)}</span>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => downloadFile(file)}
+                      style={{ minHeight: 32, padding: "0 12px", fontSize: 12 }}
+                    >
+                      <Download size={14} />
+                      Download
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       )}
 

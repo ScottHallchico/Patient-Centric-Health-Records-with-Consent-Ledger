@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Check, RefreshCw, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, FileUp, Paperclip, RefreshCw, Upload, X } from "lucide-react";
 import { ZeroAddress } from "ethers";
 import { compilePolicy, evaluateRequest } from "../utils/ccg";
 import { encryptData, generateKey } from "../utils/encryption";
@@ -25,8 +25,27 @@ function saveKey(account, recordId, keyMaterial) {
   localStorage.setItem(keyStoreName(account), JSON.stringify(keys));
 }
 
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(",")[1];
+      resolve({ name: file.name, type: file.type || "application/octet-stream", size: file.size, data: base64 });
+    };
+    reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function PatientDashboard({ account, contract, readContract }) {
   const [recordText, setRecordText] = useState("Cardiac MRI shows stable post-procedure recovery.");
+  const [attachedFiles, setAttachedFiles] = useState([]);
   const [selectedAttributes, setSelectedAttributes] = useState(["cardiac_imaging"]);
   const [consumer, setConsumer] = useState(ZeroAddress);
   const [role, setRole] = useState("Cardiologist");
@@ -38,6 +57,8 @@ export default function PatientDashboard({ account, contract, readContract }) {
   const [records, setRecords] = useState([]);
   const [requests, setRequests] = useState([]);
   const [status, setStatus] = useState("");
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef(null);
 
   const standingPolicy = useMemo(
     () => ({
@@ -99,13 +120,37 @@ export default function PatientDashboard({ account, contract, readContract }) {
     );
   }
 
+  function handleFilesSelected(fileList) {
+    const newFiles = Array.from(fileList);
+    setAttachedFiles((prev) => [...prev, ...newFiles]);
+  }
+
+  function removeFile(index) {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragActive(false);
+    if (e.dataTransfer.files?.length) {
+      handleFilesSelected(e.dataTransfer.files);
+    }
+  }
+
   async function handleUpload(event) {
     event.preventDefault();
     setStatus("Encrypting and uploading record...");
 
     try {
+      const filePayloads = await Promise.all(attachedFiles.map(readFileAsBase64));
+
+      const payload = JSON.stringify({
+        text: recordText,
+        files: filePayloads
+      });
+
       const keyMaterial = await generateKey();
-      const encrypted = await encryptData(recordText, keyMaterial);
+      const encrypted = await encryptData(payload, keyMaterial);
       const cid = await uploadToIPFS(encrypted);
       const policy = compilePolicy({
         cid,
@@ -141,7 +186,10 @@ export default function PatientDashboard({ account, contract, readContract }) {
       const recordId = Number(eventLog.args.recordId);
       saveKey(account, recordId, keyMaterial);
 
-      setStatus(`Record ${recordId} added. Demo AES key saved locally for grant flow.`);
+      const fileCount = filePayloads.length;
+      const fileSuffix = fileCount > 0 ? ` with ${fileCount} attachment${fileCount > 1 ? "s" : ""}` : "";
+      setStatus(`Record ${recordId} added${fileSuffix}. Demo AES key saved locally for grant flow.`);
+      setAttachedFiles([]);
       await refresh();
     } catch (error) {
       setStatus(error.shortMessage ?? error.message);
@@ -177,8 +225,45 @@ export default function PatientDashboard({ account, contract, readContract }) {
 
         <label>
           Medical text
-          <textarea value={recordText} onChange={(event) => setRecordText(event.target.value)} rows={6} />
+          <textarea value={recordText} onChange={(event) => setRecordText(event.target.value)} rows={4} />
         </label>
+
+        {/* File attachment zone */}
+        <div className="field-group">
+          <span>Attachments</span>
+          <div
+            className={`drop-zone${dragActive ? " drag-active" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <FileUp size={22} />
+            <span>Drop files here or click to browse</span>
+            <span className="drop-zone-hint">PDF, images, DICOM, or any medical file</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => { handleFilesSelected(e.target.files); e.target.value = ""; }}
+            />
+          </div>
+          {attachedFiles.length > 0 && (
+            <div className="file-list">
+              {attachedFiles.map((file, i) => (
+                <div className="file-item" key={`${file.name}-${i}`}>
+                  <Paperclip size={14} />
+                  <span className="file-name">{file.name}</span>
+                  <span className="file-size">{formatFileSize(file.size)}</span>
+                  <button type="button" className="file-remove" onClick={() => removeFile(i)} title="Remove">
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="field-group">
           <span>Attributes</span>
